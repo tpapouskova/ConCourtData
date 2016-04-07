@@ -7,12 +7,12 @@ library(dplyr)
 setAs("character","myDate", function(from) as.Date(from, format="%Y-%m-%d") )
 
 advocates <- read.csv("CAK data.csv", 
-                      sep = ",",
+                      sep = ";",
                       header = TRUE,
-                      colClasses = c("character", rep("myDate",2), rep("character",6))
+                      colClasses = c(rep("character",5), rep("numeric",2), rep("character", 2))
                       )
 registries <- read.csv("US_from registries.csv",
-                       sep = ";",
+                       sep = "\t",
                        header = TRUE,
                        colClasses = c("factor", "character", "Date", rep("character",10))
                        )
@@ -35,7 +35,6 @@ adv_sur_cit = paste(advocates$surname, adv_help$city)
 reg_ini = registries$name_initial
 adv_nam = advocates$name
 
-prop_date = registries$ProposalDate1
 
 for (i in 1:nrow(registries)){
         if (sum(reg_sur_cit[i] == adv_sur_cit,na.rm = TRUE) == 1) {
@@ -63,44 +62,33 @@ adv_sur_nam_cit = paste(advocates$surname, advocates$name, adv_help$city)
 
 inCAK <- c(rep(NA,nrow(registries)))
 unique <- c(rep(NA,nrow(registries)))
-IC <- c(rep(NA,nrow(registries)))
+PIN <- c(rep(NA,nrow(registries)))
+
 for (i in 1:nrow(registries)){
         if (sum(reg_sur_nam_cit[i] == adv_sur_nam_cit, na.rm = TRUE) == 1) {
                 unique[i] <- "by surname, name and city"
                 inCAK[i] <- "yes"
-        }
-        if ((sum(reg_sur_nam_cit[i] == adv_sur_nam_cit, na.rm = TRUE) == 1) 
-            && !((prop_date[i] >= advocates$active_from[reg_sur_nam_cit[i] == adv_sur_nam_cit])
-                 && (prop_date[i]<= advocates$active_to[reg_sur_nam_cit[i] == adv_sur_nam_cit]))){
-                inCAK[i] <- "not in the time"
+                PIN[i] <- advocates$PIN[reg_sur_nam_cit[i] == adv_sur_nam_cit]
         }
         if (sum(reg_sur_nam[i] == adv_sur_nam, na.rm = TRUE) == 1) {
                 unique[i] <- "by surname and name"
                 inCAK[i] <- "yes"
-        }
-        if ((sum(reg_sur_nam[i] == adv_sur_nam, na.rm = TRUE) == 1) 
-            && !((prop_date[i] >= advocates$active_from[adv_sur_nam == reg_sur_nam[i]])
-                 && (prop_date[i]<= advocates$active_to[adv_sur_nam == reg_sur_nam[i]]))){
-                inCAK[i] <- "not in the time"
+                PIN[i] <- advocates$PIN[reg_sur_nam[i] == adv_sur_nam]
         }
         if (sum(reg_sur[i] == adv_sur) == 1) {
                 registries$name[i] <- advocates$name[adv_sur == reg_sur[i]]
                 unique[i] <- "by surname"
                 inCAK[i] <- "yes"
-        }
-        if ((sum(reg_sur[i] == adv_sur) == 1) 
-            && !((prop_date[i] >= advocates$active_from[adv_sur == reg_sur[i]])
-               && (prop_date[i]<= advocates$active_to[adv_sur == reg_sur[i]]))){
-                inCAK[i] <- "not in the time"
+                PIN[i] <- advocates$PIN[reg_sur[i] == adv_sur]
         }
         if (sum(reg_sur[i] == adv_sur) == 0){
-                inCAK[i] <- "not at all"
+                inCAK[i] <- "no"
         }
 }
 
-registries_uniqueness <- cbind(registries,unique,inCAK, IC) %>% 
+registries_uniqueness <- cbind(registries,unique,inCAK, PIN) %>% 
         transmute(RegSign=RegistrySign, PropDate=ProposalDate1,
-                  surname=surname, name=name,inCAK=inCAK,unique=unique, PIN=IC)
+                  surname=surname, name=name,inCAK=inCAK,unique=unique, PIN=PIN)
 # write.csv(cbind(registries,unique,inCAK),"data z rejstriku pro US.csv")
 write.csv(registries_uniqueness,"US_from registries_CAK imputed.csv")
 
@@ -108,50 +96,49 @@ write.csv(registries_uniqueness,"US_from registries_CAK imputed.csv")
 setAs("character","myDate", function(from) as.Date(from, format="%d.%m.%Y") )
 
 database_raw <- read.csv("US_from database.csv",
-                     sep = ";",
+                     sep = "\t",
                      strip.white=TRUE,
                      header = TRUE,
                      colClasses = c("factor", "character", "myDate", rep("character",4))
                      ) 
 database_all <- database_raw[(database_raw$surname != "")  & !is.na(database_raw$surname),]
 #database <- database_all[sample(nrow(database_all), 4000), ]
-database <- database_all
+database_to_impute <- database_all[database_all$IC == "",]
+dummy1 <- c(rep("by PIN", nrow(database_all[database_all$IC != "",])))
+dummy2 <- c(rep("yes", nrow(database_all[database_all$IC != "",])))
+database_ready <- cbind (database_all[database_all$IC != "",],dummy1, dummy2)%>%
+        transmute(RegSign=RegistrySign, PropDate=ProposalDate1,
+                  surname=surname, name=FirstName,
+                  inCAK=dummy2,
+                  unique=dummy1, 
+                  PIN=IC)
 
-dat_sur = database$surname
-dat_sur_nam = paste(database$surname, database$FirstName)
-prop_date2 = database$ProposalDate1
+dat_sur = database_to_impute$surname
+dat_sur_nam = paste(database_to_impute$surname, database_to_impute$FirstName)
 
-inCAK2 <- c(rep(NA,nrow(database)))
-unique2 <- c(rep(NA,nrow(database)))
-for (i in 1:nrow(database)){
+inCAK2 <- c(rep(NA,nrow(database_to_impute)))
+unique2 <- c(rep(NA,nrow(database_to_impute)))
+PIN2 <- c(rep(NA,nrow(database_to_impute)))
+for (i in 1:nrow(database_to_impute)){
         if (sum(dat_sur_nam[i] == adv_sur_nam, na.rm = TRUE) == 1) {
                 unique2[i] <- "by surname and name"
                 inCAK2[i] <- "yes"
-        }
-        if ((sum(dat_sur_nam[i] == adv_sur_nam, na.rm = TRUE) == 1) 
-            && !((prop_date2[i] >= advocates$active_from[adv_sur_nam == dat_sur_nam[i]])
-                 && (prop_date2[i]<= advocates$active_to[adv_sur_nam == dat_sur_nam[i]]))){
-                inCAK2[i] <- "not in the time"
+                PIN2[i] <- advocates$PIN[dat_sur_nam[i] == adv_sur_nam]
         }
         if (sum(dat_sur[i] == adv_sur) == 1) {
                 unique2[i] <- "by surname"
                 inCAK2[i] <- "yes"
-        }
-        if ((sum(dat_sur[i] == adv_sur) == 1) 
-            && !((prop_date2[i] >= advocates$active_from[adv_sur == dat_sur[i]])
-                 && (prop_date2[i]<= advocates$active_to[adv_sur == dat_sur[i]]))){
-                inCAK2[i] <- "not in the time"
+                PIN2[i] <- advocates$PIN[dat_sur[i] == adv_sur]
         }
         if (sum(dat_sur[i] == adv_sur) == 0){
-                inCAK2[i] <- "not at all"
+                inCAK2[i] <- "no"
         }
 }
 
-database_uniqueness <- cbind(database,unique2,inCAK2) %>% 
+database_uniqueness <- cbind(database_to_impute,unique2,inCAK2, PIN2) %>% 
         transmute(RegSign=RegistrySign, PropDate=ProposalDate1,
-                  surname=surname, name=FirstName,inCAK=inCAK2,unique=unique2, PIN=IC)
-write.csv(database_uniqueness,"US_from database_CAK imputed.csv")
+                  surname=surname, name=FirstName,inCAK=inCAK2,unique=unique2, PIN=PIN2)
 
-US_data <- rbind(registries_uniqueness,database_uniqueness)
+US_data <- rbind(registries_uniqueness,database_uniqueness,database_ready)
 
 write.csv(US_data,"US data.csv", row.names = F)

@@ -1,6 +1,5 @@
 setwd("C:/Users/Tereza Doležalová/Dropbox/Škola/Ph.D/ConCourtData")
 
-library(ggplot2)
 source("NALUS_data.R", encoding = 'UTF-8')
 
 crawled_data <- load_crawled_data()
@@ -9,88 +8,136 @@ const_court_data$Registry.Sign <- normalize_registry_sign(const_court_data$Regis
 raw_data <- merge_data(crawled_data, const_court_data)
 glimpse(raw_data)
 
-data_all <- prepare_data(raw_data)
-glimpse(data_all)
-length(unique(data_all$Advocate.Known))
+data_named <- prepare_named_data(raw_data)
+length(unique(data_named$Advocate.Known))
+data_pined <- prepare_pined_data(raw_data)
+length(unique(data_pined$PIN))
+data_surnamed <- prepare_surnamed_data(raw_data)
+length(unique(data_surnamed$Advocate.Surname))
+
+# how complete are data across years
+cases_per_year <- group_by(raw_data, Year = format(Decision.Date, "%Y")) %>% 
+        summarise(Total=length(Registry.Sign))
+cases_named_per_year <- group_by(data_named, Year = format(Decision.Date, "%Y")) %>% 
+        summarise(Total.Named=length(Registry.Sign))
+cases_pined_per_year <- group_by(data_pined, Year = format(Decision.Date, "%Y")) %>% 
+        summarise(Total.Pined=length(Registry.Sign))
+cases_surnamed_per_year <- group_by(data_surnamed, Year = format(Decision.Date, "%Y")) %>% 
+        summarise(Total.Surnamed=length(Registry.Sign))
+completness_data <- full_join(cases_per_year, cases_named_per_year, by = "Year") %>% 
+        full_join(cases_pined_per_year, by = "Year") %>%
+        full_join(cases_surnamed_per_year, by = "Year") %>%
+        mutate(Share.Named = Total.Named/Total, 
+               Share.Pined = Total.Pined/Total, 
+               Share.Surnamed = Total.Surnamed/Total)
+View(completness_data)
 
 ################ interesting pieces of analysis
+### LOGISTIC REGRESSION
+data_pin_logit_reg <- prepare_logit_reg(data_pined, "PIN")
+data_name_logit_reg <- prepare_logit_reg(data_named, "Advocate.Known")
+data_surname_logit_reg <- prepare_logit_reg(data_surnamed, "Advocate.Surname")
+
+# je nejaka zavislost poctu stiznosti a judgement rate daneho advokata podle IČ
+data_pin_logit_reg$Judgement.Dummy <- as.factor(data_pin_logit_reg$Judgement.Dummy)
+cdplot(Judgement.Dummy ~ Cases.Before, data = data_pin_logit_reg)
+pin_logit_reg <- glm(Judgement.Dummy ~ Cases.Before, data = data_pin_logit_reg, family = "binomial")
+summary(pin_logit_reg) # -0.0034, kdyz pouzity data_name_logit_reg tak -0.0032.., -0.0031.. kdyz pouzito data_surname_logit_reg
+pin_plot_data <- data.frame(Cases.Before = 0:900)
+pin_plot_data$Judgement.Probability <- predict(pin_logit_reg, newdata = pin_plot_data, type = "response")
+ggplot(pin_plot_data, aes(x = Cases.Before, y = Judgement.Probability)) + geom_line(size=1)
+
+# je nejaka zavislost poctu nalezu a judgement rate daneho advokata podle IČ
+data_pin_logit_reg$Judgement.Dummy <- as.factor(data_pin_logit_reg$Judgement.Dummy)
+cdplot(Judgement.Dummy ~ Judgements.Before, data = data_pin_logit_reg)
+pin_logit_reg <- glm(Judgement.Dummy ~ Judgements.Before, data = data_pin_logit_reg, family = "binomial")
+summary(pin_logit_reg) # 0.044, kdyz pouzity data_name_logit_reg tak 0.043.., 0.019 kdyz pouzito data_surname_logit_reg
+pin_plot_data <- data.frame(Judgements.Before = 0:100)
+pin_plot_data$Judgement.Probability <- predict(pin_logit_reg, newdata = pin_plot_data, type = "response")
+ggplot(pin_plot_data, aes(x = Judgements.Before, y = Judgement.Probability)) + geom_line(size=1)
+
+# je nejaka zavislost poctu win a win.rate daneho advokata podle IČ
+data_pin_logit_reg$Win.Dummy <- as.factor(data_pin_logit_reg$Win.Dummy)
+cdplot(Win.Dummy ~ Wins.Before, data = data_pin_logit_reg)
+pin_logit_reg <- glm(Win.Dummy ~ Wins.Before, data = data_pin_logit_reg, family = "binomial")
+summary(pin_logit_reg) # 0.052.., kdyz pouzity data_name_logit_reg tak 0.051.., 0.027.. kdyz pouzito data_surname_logit_reg
+pin_plot_data <- data.frame(Wins.Before = 0:100)
+pin_plot_data$Win.Probability <- predict(pin_logit_reg, newdata = pin_plot_data, type = "response")
+ggplot(pin_plot_data, aes(x = Wins.Before, y = Win.Probability)) + geom_line(size=1)
+
+
+
 # doba rizeni je lognormalne rozlozena
-qplot(log(Proceedings.Length), data=data_all, geom = "density")
+qplot(log(Proceedings.Length), data=data_named, geom = "density")
 
 # doba rizeni se zda byt zavisla na advokatovi NUTNO JESTE PODROBNEJI PROVERIT
-anova <- aov(data_all$Proceedings.Length ~ data_all$Advocate.Known)
-summary(anova)
-
-# naivni rozdeleni si pripadu do 10 sochtliku dle delky rizeni
-data_bucketed <- cases_into_buckets(data_all)
-# vztah delky rizeni a advokata
-advocate_data_bucketed <- advocate_cases_bucketed(data_bucketed)
-# vztah delky rizeni a soudce
-judge_data_bucketed <- judge_cases_bucketed(data_bucketed)
-# vztah delky rizeni a soudce pro jednotliveho advokata
-advocate_judge_data_bucketed <- advocate_judge_cases_bucketed(data_bucketed)
+# anova <- aov(data$Proceedings.Length ~ data$Advocate.Known)
+# summary(anova)
 
 # je pro konkretniho advokata zavisla doba rizeni na soudci, kteremu stiznost napadne?
+muller <- filter(data_pined, PIN == "15286797")
+anova <- aov(muller$Proceedings.Length ~ muller$Rapporteur)
+summary(anova)
 # je pro konkretniho advokata zavisla judgement.rate na soudci, kteremu stiznost napadne?
 # je pro konkretniho advokata zavisla uspesnost nalezu na soudci, kteremu stiznost napadne?
-advocate_judge_stat_data <- advocate_judge_statistics (data_all) # zajimavy je napr vztah Sokola a Wagnerove, mozna Gotz a Jurka
+advocate_judge_stat_data <- advocate_judge_statistics (data_named) # zajimavy je napr vztah Sokola a Wagnerove, mozna Gotz a Jurka
 
 
-advocate_data <-  group_by(data_all, Advocate.Known) %>% 
-        summarize (Cases=length(Registry.Sign),
+data_advocate_pined <-  group_by(data_pined, PIN) %>% 
+        summarize (Advocate.Known = Advocate.Known,
+                   Cases=length(Registry.Sign),
                    Judgements=sum(Decision.Form=="Nález"),
+                   Judgement.Rate=sum(Decision.Form=="Nález")/length(Registry.Sign),
                    Wins=sum(grepl("vyhověno", Decision.Type)),
-                   Win.Rate=sum(grepl("vyhověno", Decision.Type))/sum(Decision.Form=="Nález"),
+                   Win.Rate=sum(grepl("vyhověno", Decision.Type))/length(Registry.Sign),
                    Losses=sum(grepl("zamítnuto", Decision.Type)),
-                   Loss.Rate=sum(grepl("vyhověno", Decision.Type))/sum(Decision.Form=="Nález"))
-successful_advocate_data <- filter(advocate_data,Judgements>=1)   
+                   Loss.Rate=sum(grepl("zamítnuto", Decision.Type))/length(Registry.Sign))
+successful_advocate_data <- filter(data_advocate_pined,Judgements>=1)   
 
-n <- nrow(caseses_per_advocate)
+n <- nrow(data_advocate_pined)
 # kolik tak jednotlivi advokati podavaji stiznosti?
-qplot((1:n - 1)/(n - 1), sort(advocate_data$Cases), 
+qplot((1:n - 1)/(n - 1), sort(data_advocate_pined$Cases), 
       xlab = "Sample Fraction",
       ylab ="Sample Quantile",
       geom = "line",
       main = "Cases")
 # kolik tak na advokata pripada nalezu
-qplot((1:n - 1)/(n - 1), sort(advocate_data$Judgements), 
+qplot((1:n - 1)/(n - 1), sort(data_advocate_pined$Judgements), 
       xlab = "Sample Fraction",
       ylab ="Sample Quantile",
       geom = "line",
       main = "Judgements")
 # a kolik vyhoveno
-qplot((1:n - 1)/(n - 1), sort(advocate_data$Wins), 
+qplot((1:n - 1)/(n - 1), sort(data_advocate_pined$Wins), 
       xlab = "Sample Fraction",
       ylab ="Sample Quantile",
       geom = "line",
       main = "Wins")
 
 # kolik advokatu jde na jistotu a podava jen nalezy? kteri to jsou?
-sum(advocate_judge_stat_data$Judgement.Rate==1)
-who <- unique(filter(advocate_judge_stat_data, Judgement.Rate==1)$Advocate.Known)
-length(who)
-
-# je nejaky vztah mezi poctem podanych stiznosti (cases) a uspesnosti(judgements, pripadne wins)?
-cor(advocate_data$Cases, advocate_data$Judgements)
-qplot(Cases, Judgements, data = advocate_data) # zajimave jsou tam videt 3 outliers
-cor(successful_advocate_data$Cases, successful_advocate_data$Win.Rate)
-cor(successful_advocate_data$Judgements, successful_advocate_data$Win.Rate)
-qplot(Judgements, Win.Rate, data = successful_advocate_data) # je tam videt nejaka obloukovita zavislost
-# TO DO overit jeste poradovou zavislost
-# TO DO overit lidi, co maji 20 nalezu a ve vsech vyhrali
+sum(data_advocate_pined$Judgement.Rate==1)
+data_advocate_pined[data_advocate_pined$Judgement.Rate==1,]
 
 # a co vztah delky advokatni praxe a uspesnosti
-# a co treba nejaka znamost jmena (jak vycislist?google?) a delka rizeni
-# lze na zaklade minulych uspechu predvidat budouci?
+
 
 
 
 ### filtered data
 # Sladkova a Valdauf maji kratkou prumernou odbu rize (30 a 40, oproti prumeru populace 177) 
 # a nizkou Judgement.Rate -> typicti kverulanti
-data <- prepare_data(raw_data, cases_min = 100, cases_max = 3000)
+data <- prepare_named_data(raw_data, cases_min = 100, cases_max = 3000)
 group_by(data, Advocate.Known) %>% 
         summarize(Mean.Time = mean(Proceedings.Length),
                   Cases=length(Decision.Type),
                   Judgement.Rate=(sum(Decision.Form=="Nález"))/Cases) %>% 
         arrange(Mean.Time)
+
+# naivni rozdeleni si pripadu do 10 sochtliku dle delky rizeni
+data_bucketed <- cases_into_buckets(data)
+# vztah delky rizeni a advokata
+advocate_data_bucketed <- advocate_cases_bucketed(data_bucketed)
+# vztah delky rizeni a soudce
+judge_data_bucketed <- judge_cases_bucketed(data_bucketed)
+# vztah delky rizeni a soudce pro jednotliveho advokata
+advocate_judge_data_bucketed <- advocate_judge_cases_bucketed(data_bucketed)

@@ -1,4 +1,10 @@
 library(dplyr)
+library(aod)
+library(Rcpp)
+library(ggplot2)
+library(iterators)
+library(reshape2)
+setAs("character","myDate", function(from) as.Date(from, format="%d.%m.%Y") )
 
 load_crawled_data <- function (filename = "NALUS data.csv", sample_size = NULL) {
         setAs("character","myDate", function(from) as.Date(from, format="%d.%m.%Y") )
@@ -36,10 +42,18 @@ load_crawled_data <- function (filename = "NALUS data.csv", sample_size = NULL) 
                                  Proposer=Navrhovatel, 
                                  Decision.Form=Forma.rozhodnutí, 
                                  Decision.Type=Typ.výroku, 
-                                 Importance=Význam)  
+                                 Citation=Paralelní.citace..Sbírka.nálezů.a.usnesení.,
+                                 Importance=Význam,
+                                 File=txt_file)  
         data <- select(data_all_named, Registry.Sign, Proposal.Date, Decision.Date, 
                        Advocate, Advocate.Residence, Rapporteur, Dissent, Proceeding.Type, Proposer, 
-                       Decision.Form, Decision.Type, Importance)
+                       Decision.Form, Decision.Type, Citation, Importance, File) %>%
+                filter(Decision.Date <= "2016-06-30") %>%
+                filter(grepl(("vyhověno|zamítnuto|odmítnuto|zastaveno|mezinárodní"), 
+                             Decision.Type)) %>%
+                filter(Decision.Form == "Usnesení" | Decision.Form == "Nález") %>%
+                mutate(Proceedings.Length = as.numeric(Decision.Date - Proposal.Date)) %>%
+                arrange(Decision.Date)
         if (is.null(sample_size)) {
                 return (data)
         } else {
@@ -71,31 +85,108 @@ merge_data <- function (crawled, const_court) {
         joined <- left_join(crawled, const_court, by = "Registry.Sign")
 }
 
-prepare_data <- function (data = data, cases_min=NULL, cases_max=NULL) {
+prepare_named_data <- function (data) {
         data_new <- filter(data, (!is.na(Advocate.Surname) & !is.na(Advocate.Name))) %>% 
-                mutate(Proceedings.Length = as.numeric(Decision.Date - Proposal.Date), 
-                           Advocate.Known = paste (Advocate.Surname, Advocate.Name))
+                mutate(Advocate.Known = paste (Advocate.Surname, Advocate.Name))
+}
+
+prepare_pined_data <- function (data) {
+        data_new <- filter(data, PIN != "NA") %>% 
+                mutate(Advocate.Known = paste (Advocate.Surname, Advocate.Name))
+}
+
+prepare_surnamed_data <- function (data) {
+        data_new <- filter(data, !is.na(Advocate.Surname))
+}
+
+prepare_logit_reg <- function (data, discriminator) {
+        data <- arrange(data, Decision.Date)
+        Judgement.Dummy <- sapply(data$Decision.Form, function (form) {form == "Nález"})
+        Win.Dummy <- sapply(data$Decision.Type, function (type) {grepl("vyhověno", type)})
+        cases_before <- list()
+        for (i in unique(data[,discriminator])) {
+               cases_before[[i]] <- 0
+        }
+        Cases.Before <- c()
+        for (i in 1:nrow(data)) {
+                Cases.Before[i] <- cases_before[[data[,discriminator][i]]]
+                cases_before[[data[,discriminator][i]]] <- cases_before[[data[,discriminator][i]]] + 1
+        }
+        judgements_before <- list()
+        for (i in unique(data[,discriminator])) {
+               judgements_before[[i]] <- 0
+        }
+        Judgements.Before <- c()
+        for (i in 1:nrow(data)) {
+                Judgements.Before[i] <- judgements_before[[data[,discriminator][i]]]
+                if (data$Decision.Form[i] == "Nález") {
+                        judgements_before[[data[,discriminator][i]]] <- judgements_before[[data[,discriminator][i]]] + 1  
+                }
+        }
+        wins_before <- list()
+        for (i in unique(data[,discriminator])) {
+                wins_before[[i]] <- 0
+        }
+        Wins.Before <- c()
+        for (i in 1:nrow(data)) {
+                Wins.Before[i] <- wins_before[[data[,discriminator][i]]]
+                if (grepl("vyhověno", data$Decision.Type[i])) {
+                        wins_before[[data[,discriminator][i]]] <- wins_before[[data[,discriminator][i]]] + 1  
+                }
+        }
+        cbind(data, Judgement.Dummy, Win.Dummy, Cases.Before, Judgements.Before, Wins.Before)
+}
+
+log_reg <- function (data, dependent, independent){
+        logit_reg <- glm(dependent ~ independent, data = data, family = "binomial")
+        summary(logit_reg)
+        plot_data <- data.frame(independent = 0:900)
+        plot_data$Probability <- predict(logit_reg, newdata = plot_data, type = "response")
+        ggplot(plot_data, aes(x = independent, y = Probability)) +
+                geom_line(size=1)
+}
+
+advocate_judge_statistics <- function (data) {
+        advocate_stats <- group_by(data, Advocate.Known) %>% 
+                summarize(Cases.Total=length(Registry.Sign),
+                          Judgements.Total=sum(Decision.Form=="Nález"),
+                          Mean.Proceedings.Length = mean(Proceedings.Length),
+                          Judgement.Rate = sum(Decision.Form=="Nález")/length(Registry.Sign))
+        advocate_judge_stats <- group_by(data, Advocate.Known, Rapporteur) %>% 
+                summarize(Judge.Cases.Total=length(Registry.Sign),
+                          Judge.Mean.Proceedings.Length = mean(Proceedings.Length),
+                          Judge.Judgement.Rate = sum(Decision.Form=="Nález")/length(Registry.Sign))
+        merge(advocate_stats, advocate_judge_stats, by = "Advocate.Known") %>%
+                mutate(Cases.Judge.Share = Judge.Cases.Total/Cases.Total, 
+                       Mean.Difference = Judge.Mean.Proceedings.Length - Mean.Proceedings.Length,
+                       Judgement.Rate.Difference = Judge.Judgement.Rate - Judgement.Rate)
+}
+
+### NOT SO USEFUL FUNCTIONS
+
+filter_data <- function (data, cases_min=NULL, cases_max=NULL) {
         if (is.null(cases_min) & is.null(cases_max)) {
-                return (data_new)
+                return (data)
         } 
         if (!is.null(cases_min) & is.null(cases_max)) {
-                advocates_with_min <- group_by(data_new, Advocate.Known) %>% 
+                advocates_with_min <- group_by(data, Advocate.Known) %>% 
                         summarize(Cases=length(Decision.Type)) %>%
                         filter(Cases>=cases_min)
-                data_new[data_new$Advocate.Known %in% advocates_with_min$Advocate.Known, ]
+                data[data$Advocate.Known %in% advocates_with_min$Advocate.Known, ]
         }
         if (is.null(cases_min) & !is.null(cases_max)) {
-                advocates_with_max <- group_by(data_new, Advocate.Known) %>% 
+                advocates_with_max <- group_by(data, Advocate.Known) %>% 
                         summarize(Cases=length(Decision.Type)) %>%
                         filter(Cases<=cases_max)
-                data_new[data_new$Advocate.Known %in% advocates_with_max$Advocate.Known, ]
+                data[data$Advocate.Known %in% advocates_with_max$Advocate.Known, ]
         } else {
-                advocates_with_min_max <- group_by(data_new, Advocate.Known) %>% 
+                advocates_with_min_max <- group_by(data, Advocate.Known) %>% 
                         summarize(Cases=length(Decision.Type)) %>%
                         filter((Cases>=cases_min) & (Cases<=cases_max))
-                data_new[data_new$Advocate.Known %in% advocates_with_min_max$Advocate.Known, ]
+                data[data$Advocate.Known %in% advocates_with_min_max$Advocate.Known, ]
         }
 }
+
 
 cases_into_buckets <- function (data, arrange_by = data$Proceedings.Length, nbuckets = 10) {
         data_new <- arrange(data, arrange_by)
@@ -123,7 +214,7 @@ judge_cases_bucketed <- function (data_bucketed) {
         cases_per_judge <- group_by(data_bucketed, Rapporteur) %>% 
                 summarize(Cases.Total=length(Registry.Sign),
                           Judgements.Total=sum(Decision.Form=="Nález"))
-        data_grouped_with_total <- merge(data_grouped,  cases_per_advocate, by = "Advocate.Known")
+        data_grouped_with_total <- merge(data_grouped,  cases_per_judge, by = "Advocate.Known")
         mutate(data_grouped_with_total, Cases.Share = Cases/Cases.Total, Cases.Share.Weighted = Cases/Cases.Total*Cases, 
                Judgements.Share = Judgements/Judgements.Total, Judgements.Share.Weighted = Judgements/Judgements.Total*Judgements) %>% 
                 arrange(desc(Cases.Share.Weighted))
@@ -146,21 +237,5 @@ advocate_judge_cases_bucketed <- function (data_bucketed) {
                Judgements.Judge.Share = Judgements/Judgements.Judge.Total, Judgements.Judge.Share.Weighted = Judgements/Judgements.Judge.Total*Judgements,
                Judgements.Total.Share = Judgements/Judgements.Total, Judgements.Total.Share.Weighted = Judgements/Judgements.Total*Judgements) %>% 
                 arrange(desc(Cases.Judge.Share.Weighted))
-}
-
-advocate_judge_statistics <- function (data) {
-        advocate_stats <- group_by(data, Advocate.Known) %>% 
-                summarize(Cases.Total=length(Registry.Sign),
-                          Judgements.Total=sum(Decision.Form=="Nález"),
-                          Mean.Proceedings.Length = mean(Proceedings.Length),
-                          Judgement.Rate = sum(Decision.Form=="Nález")/length(Registry.Sign))
-        advocate_judge_stats <- group_by(data, Advocate.Known, Rapporteur) %>% 
-                summarize(Judge.Cases.Total=length(Registry.Sign),
-                          Judge.Mean.Proceedings.Length = mean(Proceedings.Length),
-                          Judge.Judgement.Rate = sum(Decision.Form=="Nález")/length(Registry.Sign))
-        merge(advocate_stats, advocate_judge_stats, by = "Advocate.Known") %>%
-                mutate(Cases.Judge.Share = Judge.Cases.Total/Cases.Total, 
-                       Mean.Difference = Judge.Mean.Proceedings.Length - Mean.Proceedings.Length,
-                       Judgement.Rate.Difference = Judge.Judgement.Rate - Judgement.Rate)
 }
         

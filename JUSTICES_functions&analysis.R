@@ -1,8 +1,11 @@
-setwd("C:/Users/Tereza Doležalová/Dropbox/Škola/Ph.D/ConCourtData")
-source("NALUS_data.R", encoding = 'UTF-8')
-crawled_data <- load_crawled_data()
+setwd("C:/Users/Tereza Dole?alov?/Dropbox/?kola/Ph.D/ConCourtData")
 library(reshape2)
 library(scales)
+
+source("ADVOCATES_functions.R", encoding = 'UTF-8')
+crawled_data <- load_crawled_data() %>%
+        filter(Decision.Date <= "2016-06-30")
+#       filter(!duplicated(Registry.Sign, fromLast=T))          ####### KE ZVÁŽENÍ, ZDA TO ZAPRACOVAT A OPRAVIT CELÝ ČLÁNEK
 
 #decision_length <- function (data) {
 #        sapply(data$File, function(txt_file){

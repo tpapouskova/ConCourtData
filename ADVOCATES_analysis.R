@@ -1,36 +1,27 @@
-setwd("C:/Users/Tereza Doležalová/Dropbox/Škola/Ph.D/ConCourtData")
+source("ADVOCATES_functions.R", encoding = 'UTF-8')
 
-source("NALUS_data.R", encoding = 'UTF-8')
+crawled_data <- load_crawled_data() %>%
+        filter(Decision.Date <= "2015-12-31") %>%
+        filter(!duplicated(Registry.Sign, fromLast=T))
 
-crawled_data <- load_crawled_data()
 const_court_data <- load_const_court_data()
-const_court_data$Registry.Sign <- normalize_registry_sign(const_court_data$Registry.Sign)
-raw_data <- merge_data(crawled_data, const_court_data)
-glimpse(raw_data)
 
-data_named <- prepare_named_data(raw_data)
-length(unique(data_named$Advocate.Known))
+raw_data <- left_join(crawled_data, const_court_data, by = "Registry.Sign")
+
 data_pined <- prepare_pined_data(raw_data)
 length(unique(data_pined$PIN))
+
 data_surnamed <- prepare_surnamed_data(raw_data)
 length(unique(data_surnamed$Advocate.Surname))
 
 # how complete are data across years
-cases_per_year <- group_by(raw_data, Year = format(Decision.Date, "%Y")) %>% 
-        summarise(Total=length(Registry.Sign))
-cases_named_per_year <- group_by(data_named, Year = format(Decision.Date, "%Y")) %>% 
-        summarise(Total.Named=length(Registry.Sign))
-cases_pined_per_year <- group_by(data_pined, Year = format(Decision.Date, "%Y")) %>% 
-        summarise(Total.Pined=length(Registry.Sign))
-cases_surnamed_per_year <- group_by(data_surnamed, Year = format(Decision.Date, "%Y")) %>% 
-        summarise(Total.Surnamed=length(Registry.Sign))
-completness_data <- full_join(cases_per_year, cases_named_per_year, by = "Year") %>% 
-        full_join(cases_pined_per_year, by = "Year") %>%
-        full_join(cases_surnamed_per_year, by = "Year") %>%
-        mutate(Share.Named = Total.Named/Total, 
-               Share.Pined = Total.Pined/Total, 
-               Share.Surnamed = Total.Surnamed/Total)
+completness_data <- completness_in_years()
 View(completness_data)
+
+
+
+
+
 
 ################ interesting pieces of analysis
 ### LOGISTIC REGRESSION

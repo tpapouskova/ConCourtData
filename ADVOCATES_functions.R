@@ -6,6 +6,53 @@ library(iterators)
 library(reshape2)
 setAs("character","myDate", function(from) as.Date(from, format="%d.%m.%Y") )
 
+advocate_judge_statistics <- function (data) {
+        advocate_stats <- group_by(data, Advocate.Known) %>% 
+                summarize(Cases.Total=length(Registry.Sign),
+                          Judgements.Total=sum(Decision.Form=="Nález"),
+                          Mean.Proceedings.Length = mean(Proceedings.Length),
+                          Judgement.Rate = sum(Decision.Form=="Nález")/length(Registry.Sign))
+        advocate_judge_stats <- group_by(data, Advocate.Known, Rapporteur) %>% 
+                summarize(Judge.Cases.Total=length(Registry.Sign),
+                          Judge.Mean.Proceedings.Length = mean(Proceedings.Length),
+                          Judge.Judgement.Rate = sum(Decision.Form=="Nález")/length(Registry.Sign))
+        merge(advocate_stats, advocate_judge_stats, by = "Advocate.Known") %>%
+                mutate(Cases.Judge.Share = Judge.Cases.Total/Cases.Total, 
+                       Mean.Difference = Judge.Mean.Proceedings.Length - Mean.Proceedings.Length,
+                       Judgement.Rate.Difference = Judge.Judgement.Rate - Judgement.Rate)
+}
+
+completness_in_years <- function (all = raw_data, pined = data_pined, surnamed = data_surnamed) {
+        cases_per_year <- group_by(all, Year = format(Decision.Date, "%Y")) %>% 
+                summarise(Total=length(Registry.Sign))
+        cases_pined_per_year <- group_by(pined, Year = format(Decision.Date, "%Y")) %>% 
+                summarise(Total.Pined=length(Registry.Sign))
+        cases_surnamed_per_year <- group_by(surnamed, Year = format(Decision.Date, "%Y")) %>% 
+                summarise(Total.Surnamed=length(Registry.Sign))
+        completness_data <- full_join(cases_per_year, cases_pined_per_year, by = "Year") %>% 
+                full_join(cases_surnamed_per_year, by = "Year") %>%
+                mutate(Share.Pined = Total.Pined/Total, 
+                       Share.Surnamed = Total.Surnamed/Total)
+}
+
+load_const_court_data <- function (filename = "US data.csv") {
+        setAs("character","myDate", function(from) as.Date(from, format="%Y-%m-%d") )
+        data <- read.csv(filename, 
+                         header = TRUE, 
+                         sep = ",", 
+                         comment.char = "", 
+                         colClasses = c("character","myDate", rep("character", 2), rep("factor", 2), "character"), 
+                         na.strings = "",
+                         strip.white = T)
+        data_named <- rename(data, Registry.Sign=RegSign, Advocate.Name=name, Advocate.Surname=surname)
+        data_named$Registry.Sign <- gsub("^Pl ", "Pl.", data_named$Registry.Sign)
+        data_named$Registry.Sign <- gsub("^1 ", "I.", data_named$Registry.Sign)
+        data_named$Registry.Sign <- gsub("^2 ", "II.", data_named$Registry.Sign)
+        data_named$Registry.Sign <- gsub("^3 ", "III.", data_named$Registry.Sign)
+        data_named$Registry.Sign <- gsub("^4 ", "IV.", data_named$Registry.Sign)
+        select(data_named, -PropDate)
+}
+
 load_crawled_data <- function (filename = "NALUS data.csv", sample_size = NULL) {
         setAs("character","myDate", function(from) as.Date(from, format="%d.%m.%Y") )
         data_all <- read.csv(filename, 
@@ -34,8 +81,6 @@ load_crawled_data <- function (filename = "NALUS data.csv", sample_size = NULL) 
                                  Registry.Sign=Spisová.značka, 
                                  Proposal.Date=Datum.podání, 
                                  Decision.Date=Datum.rozhodnutí, 
-                                 Advocate=lawyer, 
-                                 Advocate.Residence=residence, 
                                  Rapporteur=Soudce.zpravodaj, 
                                  Dissent=Odlišné.stanovisko, 
                                  Proceeding.Type=Typ.řízení, 
@@ -46,9 +91,8 @@ load_crawled_data <- function (filename = "NALUS data.csv", sample_size = NULL) 
                                  Importance=Význam,
                                  File=txt_file)  
         data <- select(data_all_named, Registry.Sign, Proposal.Date, Decision.Date, 
-                       Advocate, Advocate.Residence, Rapporteur, Dissent, Proceeding.Type, Proposer, 
+                       Rapporteur, Dissent, Proceeding.Type, Proposer, 
                        Decision.Form, Decision.Type, Citation, Importance, File) %>%
-                filter(Decision.Date <= "2016-06-30") %>%
                 filter(grepl(("vyhověno|zamítnuto|odmítnuto|zastaveno|mezinárodní"), 
                              Decision.Type)) %>%
                 filter(Decision.Form == "Usnesení" | Decision.Form == "Nález") %>%
@@ -61,42 +105,13 @@ load_crawled_data <- function (filename = "NALUS data.csv", sample_size = NULL) 
         }
 }
 
-load_const_court_data <- function (filename = "US data.csv") {
-        setAs("character","myDate", function(from) as.Date(from, format="%Y-%m-%d") )
-        data <- read.csv(filename, 
-                 header = TRUE, 
-                 sep = ",", 
-                 comment.char = "", 
-                 colClasses = c("character","myDate", rep("character", 2), rep("factor", 2), "character"), 
-                 na.strings = "",
-                 strip.white = T)
-        data_named <- rename(data, Registry.Sign=RegSign, Advocate.Name=name, Advocate.Surname=surname)
-        select(data_named, -PropDate)
-}
-
-normalize_registry_sign <- function (registry_sign) {
-        normalized <- gsub("^1 ", "I.", registry_sign)
-        normalized <- gsub("^2 ", "II.", normalized)
-        normalized <- gsub("^3 ", "III.", normalized)
-        gsub("^4 ", "IV.", normalized)
-}
-
-merge_data <- function (crawled, const_court) {
-        joined <- left_join(crawled, const_court, by = "Registry.Sign")
-}
-
-prepare_named_data <- function (data) {
-        data_new <- filter(data, (!is.na(Advocate.Surname) & !is.na(Advocate.Name))) %>% 
-                mutate(Advocate.Known = paste (Advocate.Surname, Advocate.Name))
-}
-
-prepare_pined_data <- function (data) {
-        data_new <- filter(data, PIN != "NA") %>% 
-                mutate(Advocate.Known = paste (Advocate.Surname, Advocate.Name))
-}
-
-prepare_surnamed_data <- function (data) {
-        data_new <- filter(data, !is.na(Advocate.Surname))
+log_reg <- function (data, dependent, independent){
+        logit_reg <- glm(dependent ~ independent, data = data, family = "binomial")
+        summary(logit_reg)
+        plot_data <- data.frame(independent = 0:900)
+        plot_data$Probability <- predict(logit_reg, newdata = plot_data, type = "response")
+        ggplot(plot_data, aes(x = independent, y = Probability)) +
+                geom_line(size=1)
 }
 
 prepare_logit_reg <- function (data, discriminator) {
@@ -105,7 +120,7 @@ prepare_logit_reg <- function (data, discriminator) {
         Win.Dummy <- sapply(data$Decision.Type, function (type) {grepl("vyhověno", type)})
         cases_before <- list()
         for (i in unique(data[,discriminator])) {
-               cases_before[[i]] <- 0
+                cases_before[[i]] <- 0
         }
         Cases.Before <- c()
         for (i in 1:nrow(data)) {
@@ -114,7 +129,7 @@ prepare_logit_reg <- function (data, discriminator) {
         }
         judgements_before <- list()
         for (i in unique(data[,discriminator])) {
-               judgements_before[[i]] <- 0
+                judgements_before[[i]] <- 0
         }
         Judgements.Before <- c()
         for (i in 1:nrow(data)) {
@@ -137,32 +152,16 @@ prepare_logit_reg <- function (data, discriminator) {
         cbind(data, Judgement.Dummy, Win.Dummy, Cases.Before, Judgements.Before, Wins.Before)
 }
 
-log_reg <- function (data, dependent, independent){
-        logit_reg <- glm(dependent ~ independent, data = data, family = "binomial")
-        summary(logit_reg)
-        plot_data <- data.frame(independent = 0:900)
-        plot_data$Probability <- predict(logit_reg, newdata = plot_data, type = "response")
-        ggplot(plot_data, aes(x = independent, y = Probability)) +
-                geom_line(size=1)
+prepare_pined_data <- function (data) {
+        data_new <- filter(data, PIN != "NA") %>% 
+                mutate(Advocate.Known = paste (Advocate.Surname, Advocate.Name))
 }
 
-advocate_judge_statistics <- function (data) {
-        advocate_stats <- group_by(data, Advocate.Known) %>% 
-                summarize(Cases.Total=length(Registry.Sign),
-                          Judgements.Total=sum(Decision.Form=="Nález"),
-                          Mean.Proceedings.Length = mean(Proceedings.Length),
-                          Judgement.Rate = sum(Decision.Form=="Nález")/length(Registry.Sign))
-        advocate_judge_stats <- group_by(data, Advocate.Known, Rapporteur) %>% 
-                summarize(Judge.Cases.Total=length(Registry.Sign),
-                          Judge.Mean.Proceedings.Length = mean(Proceedings.Length),
-                          Judge.Judgement.Rate = sum(Decision.Form=="Nález")/length(Registry.Sign))
-        merge(advocate_stats, advocate_judge_stats, by = "Advocate.Known") %>%
-                mutate(Cases.Judge.Share = Judge.Cases.Total/Cases.Total, 
-                       Mean.Difference = Judge.Mean.Proceedings.Length - Mean.Proceedings.Length,
-                       Judgement.Rate.Difference = Judge.Judgement.Rate - Judgement.Rate)
+prepare_surnamed_data <- function (data) {
+        data_new <- filter(data, !is.na(Advocate.Surname))
 }
 
-### NOT SO USEFUL FUNCTIONS
+######## NOT SO USEFUL FUNCTIONS
 
 filter_data <- function (data, cases_min=NULL, cases_max=NULL) {
         if (is.null(cases_min) & is.null(cases_max)) {

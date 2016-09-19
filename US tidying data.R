@@ -6,9 +6,11 @@ library(dplyr)
 ###############################################################################
 
 database_choose_PINed <- function (data) {
-        unique <- c(rep("by PIN", nrow(data[data$PIN != "",])))
-        inCAK <- c(rep("yes", nrow(data[data$PIN != "",])))
-        cbind (data[data$PIN != "",], unique, inCAK)
+        unique <- c(rep("by PIN", nrow(data[data$PIN.original != "",])))
+        inCAK <- c(rep("yes", nrow(data[data$PIN.original != "",])))
+        result <- cbind (data[data$PIN.original != "",], unique, inCAK)
+        names(result)[names(result) == "PIN.original"] <- "PIN"
+        result
 }
 
 impute_unPINed <- function (data) {
@@ -32,27 +34,31 @@ impute_unPINed <- function (data) {
         unique <- c(rep(NA,nrow(data)))
         PIN <- c(rep(NA,nrow(data)))
         for (i in 1:nrow(data)){
-                if (sum(data_sur_nam_cit[i] == adv_sur_nam_cit, na.rm = TRUE) == 1) {
-                        unique[i] <- "by surname, name and city"
+                if (sum(data_sur[i] == adv_sur, na.rm = TRUE) == 0){
+                        inCAK[i] <- "no"
+                        next
+                }
+                if (sum(data_sur[i] == adv_sur, na.rm = TRUE) == 1) {
+                        unique[i] <- "by surname"
                         inCAK[i] <- "yes"
-                        PIN[i] <- advocates$PIN[data_sur_nam_cit[i] == adv_sur_nam_cit]
+                        PIN[i] <- advocates$PIN[data_sur[i] == adv_sur]
+                        next
                 }
                 if (sum(data_sur_nam[i] == adv_sur_nam, na.rm = TRUE) == 1) {
                         unique[i] <- "by surname and name"
                         inCAK[i] <- "yes"
                         PIN[i] <- advocates$PIN[data_sur_nam[i] == adv_sur_nam]
+                        next
                 }
-                if (sum(data_sur[i] == adv_sur) == 1) {
-                        unique[i] <- "by surname"
+                if (sum(data_sur_nam_cit[i] == adv_sur_nam_cit, na.rm = TRUE) == 1) {
+                        unique[i] <- "by surname, name and city"
                         inCAK[i] <- "yes"
-                        PIN[i] <- advocates$PIN[data_sur[i] == adv_sur]
+                        PIN[i] <- advocates$PIN[data_sur_nam_cit[i] == adv_sur_nam_cit]
+                        next
                 }
-                if (sum(data_sur[i] == adv_sur) == 0){
-                        inCAK[i] <- "no"
-                }
+
         }
         result <- cbind(data, unique,inCAK, PIN)
-        result <- result[, !duplicated(colnames(result))]
         select(result, RegSign, PropDate, surname, name, unique, inCAK, PIN)
 }
 
@@ -78,7 +84,7 @@ load_database <- function (filename = "US_from database.csv", date_format = "%d.
                           PropDate = ProposalDate1,
                           surname = surname,
                           name = FirstName,
-                          PIN = IC)
+                          PIN.original = IC)
 }
 
 load_nalus <- function (filename = "US_from NALUS.csv", date_format = "%Y-%m-%d") {
@@ -137,7 +143,7 @@ adv_sur_nam_cit = paste(advocates$surname, advocates$name, adv_help$city)
 
 database <- load_database()
 database_ready <- database_choose_PINed (database)
-database_to_impute <- database[database$PIN == "",]
+database_to_impute <- database[database$PIN.original == "",]
 database_unique_PINed <- impute_unPINed (database_to_impute)
 
 registries <- load_registries()

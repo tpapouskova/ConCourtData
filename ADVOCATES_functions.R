@@ -31,8 +31,8 @@ completness_in_years <- function (all = raw_data, pined = data_pined, surnamed =
                 summarise(Total.Surnamed=length(Registry.Sign))
         completness_data <- full_join(cases_per_year, cases_pined_per_year, by = "Year") %>% 
                 full_join(cases_surnamed_per_year, by = "Year") %>%
-                mutate(Share.Pined = Total.Pined/Total, 
-                       Share.Surnamed = Total.Surnamed/Total)
+                mutate(Share.Pined = Total.Pined/Total*100, 
+                       Share.Surnamed = Total.Surnamed/Total*100)
 }
 
 load_const_court_data <- function (filename = "US data.csv") {

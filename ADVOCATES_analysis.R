@@ -19,38 +19,33 @@ completness_data <- completness_in_years()
 View(completness_data)
 
 
-
-
-
-
 ################ interesting pieces of analysis
 ### LOGISTIC REGRESSION
-data_pin_logit_reg <- prepare_logit_reg(data_pined, "PIN")
-data_name_logit_reg <- prepare_logit_reg(data_named, "Advocate.Known")
-data_surname_logit_reg <- prepare_logit_reg(data_surnamed, "Advocate.Surname")
+data_pined_for_logit_reg <- prepare_logit_reg(data_pined, "PIN")
+data_surnamed_for_logit_reg <- prepare_logit_reg(data_surnamed, "Advocate.Surname")
 
 # je nejaka zavislost poctu stiznosti a judgement rate daneho advokata podle IČ
-data_pin_logit_reg$Judgement.Dummy <- as.factor(data_pin_logit_reg$Judgement.Dummy)
-cdplot(Judgement.Dummy ~ Cases.Before, data = data_pin_logit_reg)
-pin_logit_reg <- glm(Judgement.Dummy ~ Cases.Before, data = data_pin_logit_reg, family = "binomial")
-summary(pin_logit_reg) # -0.0034, kdyz pouzity data_name_logit_reg tak -0.0032.., -0.0031.. kdyz pouzito data_surname_logit_reg
+data_pined_for_logit_reg$Judgement.Dummy <- as.factor(data_pined_for_logit_reg$Judgement.Dummy)
+cdplot(Judgement.Dummy ~ Cases.Before, data = data_pined_for_logit_reg)
+pin_logit_reg <- glm(Judgement.Dummy ~ Cases.Before, data = data_pined_for_logit_reg, family = "binomial")
+summary(pin_logit_reg) # -0.0034, -0.0032.. kdyz pouzito data_surname_logit_reg
 pin_plot_data <- data.frame(Cases.Before = 0:900)
 pin_plot_data$Judgement.Probability <- predict(pin_logit_reg, newdata = pin_plot_data, type = "response")
 ggplot(pin_plot_data, aes(x = Cases.Before, y = Judgement.Probability)) + geom_line(size=1)
 
 # je nejaka zavislost poctu nalezu a judgement rate daneho advokata podle IČ
-data_pin_logit_reg$Judgement.Dummy <- as.factor(data_pin_logit_reg$Judgement.Dummy)
-cdplot(Judgement.Dummy ~ Judgements.Before, data = data_pin_logit_reg)
-pin_logit_reg <- glm(Judgement.Dummy ~ Judgements.Before, data = data_pin_logit_reg, family = "binomial")
+data_pined_for_logit_reg$Judgement.Dummy <- as.factor(data_pined_for_logit_reg$Judgement.Dummy)
+cdplot(Judgement.Dummy ~ Judgements.Before, data = data_pined_for_logit_reg)
+pin_logit_reg <- glm(Judgement.Dummy ~ Judgements.Before, data = data_pined_for_logit_reg, family = "binomial")
 summary(pin_logit_reg) # 0.044, kdyz pouzity data_name_logit_reg tak 0.043.., 0.019 kdyz pouzito data_surname_logit_reg
 pin_plot_data <- data.frame(Judgements.Before = 0:100)
 pin_plot_data$Judgement.Probability <- predict(pin_logit_reg, newdata = pin_plot_data, type = "response")
 ggplot(pin_plot_data, aes(x = Judgements.Before, y = Judgement.Probability)) + geom_line(size=1)
 
 # je nejaka zavislost poctu win a win.rate daneho advokata podle IČ
-data_pin_logit_reg$Win.Dummy <- as.factor(data_pin_logit_reg$Win.Dummy)
-cdplot(Win.Dummy ~ Wins.Before, data = data_pin_logit_reg)
-pin_logit_reg <- glm(Win.Dummy ~ Wins.Before, data = data_pin_logit_reg, family = "binomial")
+data_pined_for_logit_reg$Win.Dummy <- as.factor(data_pined_for_logit_reg$Win.Dummy)
+cdplot(Win.Dummy ~ Wins.Before, data = data_pined_for_logit_reg)
+pin_logit_reg <- glm(Win.Dummy ~ Wins.Before, data = data_pined_for_logit_reg, family = "binomial")
 summary(pin_logit_reg) # 0.052.., kdyz pouzity data_name_logit_reg tak 0.051.., 0.027.. kdyz pouzito data_surname_logit_reg
 pin_plot_data <- data.frame(Wins.Before = 0:100)
 pin_plot_data$Win.Probability <- predict(pin_logit_reg, newdata = pin_plot_data, type = "response")

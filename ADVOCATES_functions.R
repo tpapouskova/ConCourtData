@@ -105,15 +105,6 @@ load_crawled_data <- function (filename = "NALUS data.csv", sample_size = NULL) 
         }
 }
 
-log_reg <- function (data, dependent, independent){
-        logit_reg <- glm(dependent ~ independent, data = data, family = "binomial")
-        summary(logit_reg)
-        plot_data <- data.frame(independent = 0:900)
-        plot_data$Probability <- predict(logit_reg, newdata = plot_data, type = "response")
-        ggplot(plot_data, aes(x = independent, y = Probability)) +
-                geom_line(size=1)
-}
-
 prepare_logit_reg <- function (data, discriminator) {
         data <- arrange(data, Decision.Date)
         Judgement.Dummy <- sapply(data$Decision.Form, function (form) {form == "Nález"})
@@ -154,7 +145,7 @@ prepare_logit_reg <- function (data, discriminator) {
 
 prepare_pined_data <- function (data) {
         data_new <- filter(data, PIN != "NA") %>% 
-                mutate(Advocate.Known = paste (Advocate.Surname, Advocate.Name))
+                mutate(Advocate.Known = paste (Advocate.Surname, Advocate.Name), PIN = as.character(PIN))
 }
 
 prepare_surnamed_data <- function (data) {
